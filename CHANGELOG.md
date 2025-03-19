@@ -1,3 +1,9 @@
+# Changes
+
+## [0.4.0] - 2025-03-19
+
+* Update Dependencies, Update SDK, Add Android Support, Fixed Lints;
+
 ## [0.3.0+1] - 2022-08-07
 
 * Update README.md
@@ -50,7 +56,7 @@
 ## [0.0.5] - 2020-12-17
 
 * Fixed a null pointer dereference in SerialPort.availablePorts
-  - Thanks @Coimbra1984!
+  Thanks @Coimbra1984!
 
 ## [0.0.4+1] - 2020-10-02
 
