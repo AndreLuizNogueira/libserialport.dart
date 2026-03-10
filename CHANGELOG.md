@@ -1,5 +1,9 @@
 # Changes
 
+## [0.4.2] - 2026-03-10
+
+Atualizado Dependências;
+
 ## [0.4.0] - 2025-03-19
 
 * Update Dependencies, Update SDK, Add Android Support, Fixed Lints;
