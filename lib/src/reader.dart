@@ -33,6 +33,8 @@ import 'package:libserialport/src/android.dart';
 import 'package:libserialport/src/bindings.dart';
 import 'package:libserialport/src/dylib.dart';
 import 'package:libserialport/src/error.dart';
+import 'package:libserialport/src/lpt.dart';
+import 'package:libserialport/src/lpt_android.dart';
 import 'package:libserialport/src/port.dart';
 import 'package:libserialport/src/util.dart';
 import 'package:usb_serial/usb_serial.dart';
@@ -40,35 +42,24 @@ import 'package:usb_serial/usb_serial.dart';
 const int _kReadEvents = sp_event.SP_EVENT_RX_READY | sp_event.SP_EVENT_ERROR;
 
 /// Asynchronous serial port reader.
-///
-/// Provides a [stream] that can be listened to asynchronously to receive data
-/// whenever available.
-///
-/// The [stream] will attempt to open a given [port] for reading. If the stream
-/// fails to open the port, it will emit [SerialPortError]. If the port is
-/// successfully opened, the stream will begin emitting [Uint8List] data events.
-///
-/// **Note:** The reader must be closed using [close()] when done with reading.
 abstract class SerialPortReader {
-  /// Creates a reader for the port. Optional [timeout] parameter can be
-  /// provided to specify a time im milliseconds between attempts to read after
-  /// a failure to open the [port] for reading. If not given, [timeout] defaults
-  /// to 500ms.
   factory SerialPortReader(SerialPort port, {int? timeout}) {
     if (Platform.isAndroid) {
+      if (port is SerialPortLptAndroid) {
+        return SerialPortReaderLptAndroid(port);
+      }
       return _SerialPortReaderAndroidImpl(port, timeout: timeout);
+    }
+
+    if (port is SerialPortLpt) {
+      return SerialPortReaderLpt(port);
     }
 
     return _SerialPortReaderDesktopImpl(port, timeout: timeout);
   }
 
-  /// Gets the port the reader operates on.
   SerialPort get port;
-
-  /// Gets a stream of data.
   Stream<Uint8List> get stream;
-
-  /// Closes the stream.
   void close();
 }
 
@@ -90,9 +81,8 @@ class _SerialPortReaderDesktopImpl implements SerialPortReader {
   ReceivePort? _receiver;
   StreamController<Uint8List>? __controller;
 
-  _SerialPortReaderDesktopImpl(SerialPort port, {int? timeout})
-    : _port = port,
-      _timeout = timeout ?? 500;
+  _SerialPortReaderDesktopImpl(this._port, {int? timeout})
+    : _timeout = timeout ?? 500;
 
   @override
   SerialPort get port => _port;
@@ -102,6 +92,7 @@ class _SerialPortReaderDesktopImpl implements SerialPortReader {
 
   @override
   void close() {
+    _cancelRead();
     __controller?.close();
     __controller = null;
   }
@@ -213,10 +204,7 @@ class _SerialPortReaderAndroidImpl implements SerialPortReader {
 
   @override
   void close() {
-    _receiver?.cancel();
-    _receiver = null;
-    _usbEvents?.cancel();
-    _usbEvents = null;
+    _cancelRead();
     __controller?.close();
     __controller = null;
   }
@@ -244,9 +232,7 @@ class _SerialPortReaderAndroidImpl implements SerialPortReader {
 
     _usbEvents = UsbSerial.usbEventStream?.listen((usbEvent) {
       if (usbEvent.device == null) return;
-
       if (usbEvent.device!.port != port.port) return;
-
       if (usbEvent.event == UsbEvent.ACTION_USB_DETACHED) {
         _controller.addError(SerialPortError('Device disconnected'));
       }

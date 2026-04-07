@@ -231,11 +231,16 @@ abstract class SerialPort {
   bool endBreak();
 
   /// Gets the error for a failed operation.
+  ///
+  /// Returns the most recent error from any port type (serial or LPT).
   static SerialPortError? get lastError {
     if (Platform.isAndroid) {
-      return SerialPortAndroid.lastError;
+      return SerialPortLptAndroid.lastError ?? SerialPortAndroid.lastError;
     } else {
-      return SerialPortDesktop.lastError;
+      // For LPT ports the error lives in SerialPortLpt, not in the
+      // libserialport C library.  Return whichever is non-null, preferring
+      // the LPT error since it is set by Dart code and is more descriptive.
+      return SerialPortLpt.lastError ?? SerialPortDesktop.lastError;
     }
   }
 }

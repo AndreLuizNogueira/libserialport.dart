@@ -24,6 +24,7 @@
 
 // ignore_for_file: annotate_overrides, unnecessary_getters_setters
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -31,6 +32,14 @@ import 'package:libserialport/src/config.dart';
 import 'package:libserialport/src/enums.dart';
 import 'package:libserialport/src/error.dart';
 import 'package:libserialport/src/port.dart';
+import 'package:libserialport/src/reader.dart';
+
+/// Internal logging helper that mimics LIBSERIALPORT_DEBUG behavior.
+void _log(String msg) {
+  if (Platform.environment.containsKey('LIBSERIALPORT_DEBUG')) {
+    stderr.writeln('libserialport (LPT): $msg');
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers (exported so consumers can use them)
@@ -113,6 +122,7 @@ class SerialPortLpt implements SerialPort {
   bool _isOpen = false;
   SerialPortConfig? _config;
 
+  /// Stores the most recent error.  Exposed via [SerialPort.lastError].
   static SerialPortError? _lastError;
 
   SerialPortLpt(String name) : _devicePath = lptToDevicePath(name);
@@ -128,9 +138,7 @@ class SerialPortLpt implements SerialPort {
   ///
   /// * **Linux** – probes `/dev/lp0`…`/dev/lp3` and `/dev/usb/lp0`…`/dev/usb/lp3`
   ///   for existence.
-  /// * **Windows** – attempts to briefly open `\\.\LPT1`…`\\.\LPT9`;
-  ///   ports that respond are included.
-  /// * **Other platforms** – returns an empty list.
+  /// * **Windows** – attempts to briefly open `\\.\LPT1`…`\\.\LPT9`.
   static Future<List<String>> get availablePorts async {
     if (Platform.isLinux) {
       return _linuxPorts();
@@ -147,6 +155,8 @@ class SerialPortLpt implements SerialPort {
     ];
     final result = <String>[];
     for (final path in candidates) {
+      // On Linux, character device files listed in /dev can be safely
+      // probed for existence without side effects.
       if (await File(path).exists()) result.add(path);
     }
     return result;
@@ -158,18 +168,19 @@ class SerialPortLpt implements SerialPort {
     for (var i = 1; i <= 9; i++) {
       final path = '\\\\.\\LPT$i';
       try {
-        // Opening with FileMode.write is necessary on Windows device paths;
-        // we close immediately after confirming the port is accessible.
+        // On Windows, device paths like \\.\LPT1 cannot be checked via
+        // File.exists().  We must attempt to open them.
         final f = await File(path).open(mode: FileMode.write);
         await f.close();
         result.add(path);
       } catch (_) {
-        // Port does not exist or is not accessible – skip.
+        // Port does not exist, is busy, or requires higher privileges.
       }
     }
     return result;
   }
 
+  /// Gets the last error encountered by any LPT port operation.
   static SerialPortError? get lastError => _lastError;
 
   // ── SerialPort interface ───────────────────────────────────────────────────
@@ -221,22 +232,51 @@ class SerialPortLpt implements SerialPort {
       // On Linux we can test existence cheaply; on Windows device paths
       // File.exists() always returns false, so we skip the check.
       if (Platform.isLinux && !await file.exists()) {
+        _log('Device file not found: $_devicePath');
         _lastError = SerialPortError(
-          'Parallel port device not found: $_devicePath',
+          'Parallel port device not found: $_devicePath  '
+          '(check that the kernel module is loaded: lsmod | grep -E "lp|usblp")',
           -1,
         );
         return false;
       }
 
-      // LPT ports are write-only on Linux and effectively write-only on
-      // Windows (the printer driver owns reading).
+      // Use FileMode.write (O_WRONLY|O_CREAT|O_TRUNC).
+      // On Linux/Windows, O_TRUNC is typically a no-op for character devices,
+      // but it's the standard mode for write-only access in dart:io.
+      _log('Opening $_devicePath (write mode)');
       _file = await file.open(mode: FileMode.write);
       _isOpen = true;
+      _log('Opened $_devicePath successfully (fd is valid)');
       return true;
+    } on FileSystemException catch (e) {
+      _log('Failed to open $_devicePath: ${e.message} (OS Error: ${e.osError})');
+      final hint = _permissionHint(e);
+      _lastError = SerialPortError(
+        '${e.message}: $_devicePath$hint',
+        e.osError?.errorCode ?? -1,
+      );
+      return false;
     } catch (e) {
+      _log('Failed to open $_devicePath (unknown error): $e');
       _lastError = SerialPortError(e.toString(), -1);
       return false;
     }
+  }
+
+  /// Provides context-aware hints for common LPT access errors.
+  static String _permissionHint(FileSystemException e) {
+    final code = e.osError?.errorCode;
+    if (code == 13 /* EACCES */ || code == 1 /* EPERM */) {
+      if (Platform.isLinux) {
+        return '\n  Hint: add your user to the lp group:\n'
+            '  sudo usermod -a -G lp \$USER && newgrp lp';
+      }
+    }
+    if (code == 16 /* EBUSY */) {
+      return '\n  Hint: the port is busy (another process has it open).';
+    }
+    return '';
   }
 
   @override
@@ -248,6 +288,7 @@ class SerialPortLpt implements SerialPort {
 
   @override
   Future<bool> close() async {
+    _log('Closing $_devicePath');
     try {
       await _file?.close();
     } catch (_) {}
@@ -263,7 +304,8 @@ class SerialPortLpt implements SerialPort {
   Future<void> setConfig(SerialPortConfig config) async {
     if (_config != config) _config?.dispose();
     _config = config;
-    // Parallel ports have no serial configuration; accepted for compatibility.
+    // Parallel ports do not have serial baud rate/parity/stopbits etc.
+    // We accept the config object but ignore its fields for compatibility.
   }
 
   @override
@@ -274,9 +316,23 @@ class SerialPortLpt implements SerialPort {
     }
     _lastError = null;
     try {
+      _log('Writing ${bytes.length} bytes to $_devicePath');
       await _file!.writeFrom(bytes);
+
+      // Flush immediately — for character devices like /dev/lp* the kernel
+      // may buffer the data until explicitly flushed or the fd is closed.
+      await _file!.flush();
+      _log('Write and flush completed');
       return bytes.length;
+    } on FileSystemException catch (e) {
+      _log('Write failed to $_devicePath: ${e.message}');
+      _lastError = SerialPortError(
+        '${e.message}: $_devicePath',
+        e.osError?.errorCode ?? -1,
+      );
+      return -1;
     } catch (e) {
+      _log('Write failed to $_devicePath (unknown error): $e');
       _lastError = SerialPortError(e.toString(), -1);
       return -1;
     }
@@ -284,8 +340,9 @@ class SerialPortLpt implements SerialPort {
 
   @override
   Future<Uint8List> read(int bytes, {int timeout = -1}) async {
-    // Hardware LPT on Linux/Windows does not support reading at the
-    // character-device level.
+    _log('Read requested on $_devicePath ($bytes bytes) - not supported');
+    // Standard LPT device drivers in Linux/Windows usually do not support
+    // bi-directional data flow via basic character device files.
     return Uint8List(0);
   }
 
@@ -316,4 +373,31 @@ class SerialPortLpt implements SerialPort {
 
   @override
   String toString() => 'SerialPortLpt($_devicePath)';
+}
+
+/// [SerialPortReader] implementation for LPT ports.
+///
+/// LPT ports on desktop platforms do not support reading data.
+/// This implementation provides an empty stream.
+class SerialPortReaderLpt implements SerialPortReader {
+  final SerialPort _port;
+  final StreamController<Uint8List> _controller = StreamController<Uint8List>();
+
+  SerialPortReaderLpt(this._port) {
+    _controller.close(); // Immediately close as read is not supported
+  }
+
+  @override
+  SerialPort get port => _port;
+
+  @override
+  Stream<Uint8List> get stream => _controller.stream;
+
+  @override
+  void close() {}
+}
+
+extension SerialPortLptReader on SerialPortLpt {
+  /// Provides access to an LPT-compatible reader.
+  SerialPortReader get reader => SerialPortReaderLpt(this);
 }

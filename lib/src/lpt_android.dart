@@ -28,6 +28,7 @@ import 'package:libserialport/src/config.dart';
 import 'package:libserialport/src/enums.dart';
 import 'package:libserialport/src/error.dart';
 import 'package:libserialport/src/port.dart';
+import 'package:libserialport/src/reader.dart';
 
 /// [SerialPort]-compatible wrapper for **Android** parallel (LPT) ports over USB.
 ///
@@ -66,20 +67,24 @@ import 'package:libserialport/src/port.dart';
 /// await port.close();
 /// ```
 class SerialPortLptAndroid implements SerialPort {
-  // Index into the last device list returned by UsbSerial.listDevices().
+  /// Index into the last device list returned by UsbSerial.listDevices().
   final int _deviceIndex;
 
-  // Optional interface number (default -1 → let usb_serial decide).
+  /// Optional interface number (default -1 → let usb_serial decide).
   final int _interfaceNumber;
 
+  /// Cached copy of the device list from UsbSerial.
   static List<UsbDevice> _currentDevices = [];
 
+  /// The underlying usb_serial port.
   UsbPort? _port;
   bool _portOpened = false;
 
+  /// Read buffer for incoming data.
   Uint8List _dataAvailable = Uint8List(0);
   StreamSubscription? _reading;
 
+  /// Most recent error message. Exposed via [SerialPort.lastError].
   static SerialPortError? _lastError;
 
   /// Creates an Android LPT port.
@@ -90,6 +95,7 @@ class SerialPortLptAndroid implements SerialPort {
       : _deviceIndex = _parseIndex(name),
         _interfaceNumber = _parseInterface(name);
 
+  /// @internal – used by reader factory.
   SerialPortLptAndroid.fromAddress(int address)
       : _deviceIndex = address & 0xff,
         _interfaceNumber = -1;
@@ -110,29 +116,28 @@ class SerialPortLptAndroid implements SerialPort {
 
   /// Always returns an empty list on Android because USB Printer Class devices
   /// cannot be distinguished from other USB devices without native code.
-  ///
-  /// Use `UsbSerial.listDevices()` in your app to inspect connected USB
-  /// devices and identify the printer by its `vid`, `pid` or `productName`,
-  /// then open it with `SerialPort('usblpt:N')`.
   static Future<List<String>> get availablePorts async => [];
 
   /// Refreshes the internal USB device cache and returns it.
   ///
-  /// Useful when you need the full device list alongside the port API.
+  /// This must be called before opening any 'usblpt:N' port if N > 0.
   static Future<List<UsbDevice>> listDevices() async {
     _currentDevices = await UsbSerial.listDevices();
     return List.unmodifiable(_currentDevices);
   }
 
+  /// Gets the last error encountered by any Android LPT port operation.
   static SerialPortError? get lastError => _lastError;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  /// Resolves the current [_deviceIndex] against [_currentDevices].
   UsbDevice? get _device =>
       (_deviceIndex >= 0 && _deviceIndex < _currentDevices.length)
           ? _currentDevices[_deviceIndex]
           : null;
 
+  /// Internal handler to pipe data from the UsbPort stream to our local buffer.
   void _startReading() {
     _dataAvailable = Uint8List(0);
     if (_port?.inputStream != null) {
@@ -190,7 +195,7 @@ class SerialPortLptAndroid implements SerialPort {
   Future<bool> open({required int mode}) async {
     _lastError = null;
 
-    // Refresh device list if it is empty.
+    // Automatically refresh device list if it hasn't been populated yet.
     if (_currentDevices.isEmpty) {
       _currentDevices = await UsbSerial.listDevices();
     }
@@ -199,21 +204,18 @@ class SerialPortLptAndroid implements SerialPort {
     if (device == null) {
       _lastError = SerialPortError(
         'USB LPT device at index $_deviceIndex not found. '
-        'Call SerialPortLptAndroid.listDevices() to refresh.',
+        'Call SerialPortLptAndroid.listDevices() first.',
         -1,
       );
       return false;
     }
 
-    // Try opening as a generic USB port.  Works for CDC-type adapters.
-    // For pure USB Printer Class devices, replace this with a MethodChannel
-    // call that does bulkTransfer via Android USB Host API.
+    // Attempt to open as a generic CDC device.
     final p = await device.create('', _interfaceNumber);
     if (p == null) {
       _lastError = SerialPortError(
-        'Could not create USB port for device "${device.productName}". '
-        'The device may be a pure USB Printer Class (0x07) device that '
-        'requires native Android USB Host API support.',
+        'Could not create USB port for "${device.productName}". '
+        'Device might require native USB Printer Class (0x07) support.',
         -1,
       );
       return false;
@@ -252,7 +254,8 @@ class SerialPortLptAndroid implements SerialPort {
   Future<void> setConfig(SerialPortConfig config) async {
     _config = config;
     if (_port == null) return;
-    // Best-effort config push – works for CDC-compatible adapters.
+    // Android USB adapters might ignore baud rate / stop bits,
+    // but CDC-compliant ones will apply these.
     try {
       await _port!.setDTR(config.dtr == SerialPortDtr.on);
       await _port!.setPortParameters(
@@ -261,9 +264,7 @@ class SerialPortLptAndroid implements SerialPort {
         config.stopBits,
         config.parity,
       );
-    } catch (_) {
-      // Ignore – printer class devices don't support serial config.
-    }
+    } catch (_) { /* ignore serial-unfriendly adapters */ }
   }
 
   @override
@@ -284,14 +285,17 @@ class SerialPortLptAndroid implements SerialPort {
 
   @override
   Future<Uint8List> read(int bytes, {int timeout = -1}) async {
+    // Lazy-start the internal reading stream.
     if (_reading == null) _startReading();
 
+    // Consume from the cached buffer first.
     if (_dataAvailable.length >= bytes) {
       final sub = _dataAvailable.sublist(0, bytes);
       _dataAvailable = _dataAvailable.sublist(bytes);
       return sub;
     }
 
+    // Blocking read with timeout.
     if (timeout >= 0) {
       var elapsed = 0;
       while (elapsed < timeout) {
@@ -315,11 +319,12 @@ class SerialPortLptAndroid implements SerialPort {
 
   @override
   void flush([int buffers = SerialPortBuffer.both]) {
+    // For Android reading, flush clears our local byte cache.
     _dataAvailable = Uint8List(0);
   }
 
   @override
-  void drain() {/* no-op */}
+  void drain() {/* no-op on USB */}
 
   @override
   int get signals => 0;
@@ -338,4 +343,38 @@ class SerialPortLptAndroid implements SerialPort {
 
   @override
   String toString() => 'SerialPortLptAndroid(usblpt:$_deviceIndex)';
+}
+
+/// [SerialPortReader] implementation for Android LPT ports.
+/// Directly pipes the UsbPort inputStream to the stream.
+class SerialPortReaderLptAndroid implements SerialPortReader {
+  final SerialPortLptAndroid _port;
+  StreamSubscription? _subscription;
+  StreamController<Uint8List>? _controller;
+
+  SerialPortReaderLptAndroid(this._port);
+
+  @override
+  SerialPort get port => _port;
+
+  @override
+  Stream<Uint8List> get stream {
+    _controller = StreamController<Uint8List>(
+      onListen: () {
+        if (_port._port?.inputStream != null) {
+          _subscription = _port._port!.inputStream!.listen((data) {
+            _controller?.add(data);
+          });
+        }
+      },
+      onCancel: () => _subscription?.cancel(),
+    );
+    return _controller!.stream;
+  }
+
+  @override
+  void close() {
+    _subscription?.cancel();
+    _controller?.close();
+  }
 }
