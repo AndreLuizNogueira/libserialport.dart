@@ -33,6 +33,8 @@ import 'package:libserialport/src/config.dart';
 import 'package:libserialport/src/dylib.dart';
 import 'package:libserialport/src/enums.dart';
 import 'package:libserialport/src/error.dart';
+import 'package:libserialport/src/lpt.dart';
+import 'package:libserialport/src/lpt_android.dart';
 import 'package:libserialport/src/util.dart';
 
 /// Serial port.
@@ -73,7 +75,9 @@ abstract class SerialPort {
   ///           with the serial port.
   factory SerialPort(String name) {
     if (Platform.isAndroid) {
-      return SerialPortAndroid(name);
+      return isLptPort(name) ? SerialPortLptAndroid(name) : SerialPortAndroid(name);
+    } else if (isLptPort(name)) {
+      return SerialPortLpt(name);
     } else {
       return SerialPortDesktop(name);
     }
@@ -92,11 +96,18 @@ abstract class SerialPort {
   int get address;
 
   /// Lists the serial ports available on the system.
-  static Future<List<String>> get availablePorts {
+  static Future<List<String>> get availablePorts async {
     if (Platform.isAndroid) {
+      // Android LPT ports (usblpt:N) cannot be automatically enumerated
+      // without native code; only standard serial USB devices are listed.
       return SerialPortAndroid.availablePorts;
     } else {
-      return SerialPortDesktop.availablePorts;
+      final serial = await SerialPortDesktop.availablePorts;
+      if (Platform.isLinux || Platform.isWindows) {
+        final lpt = await SerialPortLpt.availablePorts;
+        return [...serial, ...lpt];
+      }
+      return serial;
     }
   }
 
