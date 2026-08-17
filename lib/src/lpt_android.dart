@@ -92,13 +92,13 @@ class SerialPortLptAndroid implements SerialPort {
   /// [name] must follow the `usblpt:N` convention, e.g. `'usblpt:0'`.
   /// An optional interface number can be appended: `'usblpt:0+1'`.
   SerialPortLptAndroid(String name)
-      : _deviceIndex = _parseIndex(name),
-        _interfaceNumber = _parseInterface(name);
+    : _deviceIndex = _parseIndex(name),
+      _interfaceNumber = _parseInterface(name);
 
   /// @internal – used by reader factory.
   SerialPortLptAndroid.fromAddress(int address)
-      : _deviceIndex = address & 0xff,
-        _interfaceNumber = -1;
+    : _deviceIndex = address & 0xff,
+      _interfaceNumber = -1;
 
   static int _parseIndex(String name) {
     final suffix = name.toLowerCase().replaceFirst('usblpt:', '');
@@ -142,9 +142,10 @@ class SerialPortLptAndroid implements SerialPort {
     _dataAvailable = Uint8List(0);
     if (_port?.inputStream != null) {
       _reading = _port!.inputStream!.listen((Uint8List data) {
-        final buf = BytesBuilder()
-          ..add(_dataAvailable)
-          ..add(data);
+        final buf =
+            BytesBuilder()
+              ..add(_dataAvailable)
+              ..add(data);
         _dataAvailable = buf.toBytes();
       });
     }
@@ -264,7 +265,9 @@ class SerialPortLptAndroid implements SerialPort {
         config.stopBits,
         config.parity,
       );
-    } catch (_) { /* ignore serial-unfriendly adapters */ }
+    } catch (_) {
+      /* ignore serial-unfriendly adapters */
+    }
   }
 
   @override
@@ -324,7 +327,9 @@ class SerialPortLptAndroid implements SerialPort {
   }
 
   @override
-  void drain() {/* no-op on USB */}
+  void drain() {
+    /* no-op on USB */
+  }
 
   @override
   int get signals => 0;

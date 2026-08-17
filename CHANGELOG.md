@@ -1,5 +1,19 @@
 # Changes
 
+## [0.4.3] - 2026-08-17
+
+* Linux: reconhecimento de impressoras USB classe printer (`usblp`) —
+  `/dev/usb/lp*` e `/dev/usblp*` — separadas das portas paralelas `/dev/lp*`;
+* Linux: enumeração por listagem de diretório (antes só `lp0`..`lp3` fixos);
+* Novo alias de porta `usblp0`..`usblpN` (USB) ao lado de `lpt0`/`lp0` (paralela);
+* `SerialPortLpt.open()` passa a respeitar o modo (read/write/readWrite) e não
+  trunca mais o nó de dispositivo; detecta arquivo regular criado por engano;
+* `SerialPortLpt.read()` implementado para impressoras bidirecionais (status
+  ESC/POS `DLE EOT`); `SerialPortReaderLpt` agora entrega dados;
+* `SerialPortLpt.write()` respeita `timeout` (impressora offline não trava mais);
+* `description`/`productName`/`manufacturer` vindos do `ieee1284_id` do sysfs;
+* `SerialPort.lastError` não fica mais preso num erro LPT antigo.
+
 ## [0.4.2] - 2026-03-10
 
 Atualizado Dependências;

@@ -75,7 +75,9 @@ abstract class SerialPort {
   ///           with the serial port.
   factory SerialPort(String name) {
     if (Platform.isAndroid) {
-      return isLptPort(name) ? SerialPortLptAndroid(name) : SerialPortAndroid(name);
+      return isLptPort(name)
+          ? SerialPortLptAndroid(name)
+          : SerialPortAndroid(name);
     } else if (isLptPort(name)) {
       return SerialPortLpt(name);
     } else {
@@ -240,7 +242,9 @@ abstract class SerialPort {
       // For LPT ports the error lives in SerialPortLpt, not in the
       // libserialport C library.  Return whichever is non-null, preferring
       // the LPT error since it is set by Dart code and is more descriptive.
-      return SerialPortLpt.lastError ?? SerialPortDesktop.lastError;
+      // It is consumed on read so that a stale LPT failure does not mask
+      // every later serial port error.
+      return SerialPortLpt.consumeLastError() ?? SerialPortDesktop.lastError;
     }
   }
 }

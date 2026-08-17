@@ -52,7 +52,7 @@ abstract class SerialPortReader {
     }
 
     if (port is SerialPortLpt) {
-      return SerialPortReaderLpt(port);
+      return SerialPortReaderLpt(port, timeout: timeout);
     }
 
     return _SerialPortReaderDesktopImpl(port, timeout: timeout);

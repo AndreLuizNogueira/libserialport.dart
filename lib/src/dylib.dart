@@ -29,11 +29,13 @@ import 'package:libserialport/src/bindings.dart';
 
 LibSerialPort? _dylib;
 LibSerialPort get dylib {
-  return _dylib ??= LibSerialPort(ffi.DynamicLibrary.open(
-    resolveDylibPath(
-      'serialport',
-      dartDefine: 'LIBSERIALPORT_PATH',
-      environmentVariable: 'LIBSERIALPORT_PATH',
+  return _dylib ??= LibSerialPort(
+    ffi.DynamicLibrary.open(
+      resolveDylibPath(
+        'serialport',
+        dartDefine: 'LIBSERIALPORT_PATH',
+        environmentVariable: 'LIBSERIALPORT_PATH',
+      ),
     ),
-  ));
+  );
 }
