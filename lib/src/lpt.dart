@@ -173,10 +173,9 @@ class SerialPortLpt implements SerialPort {
 
   /// @internal – not meaningful for LPT; kept for interface compatibility.
   SerialPortLpt.fromAddress(int address)
-    : _devicePath =
-          Platform.isWindows
-              ? '\\\\.\\LPT${(address & 0xff) + 1}'
-              : '/dev/lp${address & 0xff}';
+    : _devicePath = Platform.isWindows
+          ? '\\\\.\\LPT${(address & 0xff) + 1}'
+          : '/dev/lp${address & 0xff}';
 
   // ── Static helpers ─────────────────────────────────────────────────────────
 
@@ -569,13 +568,12 @@ class SerialPortLpt implements SerialPort {
       // background never surfaces as an unhandled asynchronous error.
       pending = _file!.read(bytes).catchError((Object e) {
         _log('Read failed on $_devicePath: $e');
-        _lastError =
-            e is FileSystemException
-                ? SerialPortError(
-                  '${e.message}: $_devicePath',
-                  e.osError?.errorCode ?? -1,
-                )
-                : SerialPortError(e.toString(), -1);
+        _lastError = e is FileSystemException
+            ? SerialPortError(
+                '${e.message}: $_devicePath',
+                e.osError?.errorCode ?? -1,
+              )
+            : SerialPortError(e.toString(), -1);
         return Uint8List(0);
       });
       final current = pending;
@@ -586,10 +584,9 @@ class SerialPortLpt implements SerialPort {
     }
 
     if (timeout == 0) return await pending;
-    final limit =
-        timeout < 0
-            ? const Duration(milliseconds: 50)
-            : Duration(milliseconds: timeout);
+    final limit = timeout < 0
+        ? const Duration(milliseconds: 50)
+        : Duration(milliseconds: timeout);
     try {
       return await pending.timeout(limit);
     } on TimeoutException {

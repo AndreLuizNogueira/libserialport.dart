@@ -134,18 +134,17 @@ class SerialPortLptAndroid implements SerialPort {
   /// Resolves the current [_deviceIndex] against [_currentDevices].
   UsbDevice? get _device =>
       (_deviceIndex >= 0 && _deviceIndex < _currentDevices.length)
-          ? _currentDevices[_deviceIndex]
-          : null;
+      ? _currentDevices[_deviceIndex]
+      : null;
 
   /// Internal handler to pipe data from the UsbPort stream to our local buffer.
   void _startReading() {
     _dataAvailable = Uint8List(0);
     if (_port?.inputStream != null) {
       _reading = _port!.inputStream!.listen((Uint8List data) {
-        final buf =
-            BytesBuilder()
-              ..add(_dataAvailable)
-              ..add(data);
+        final buf = BytesBuilder()
+          ..add(_dataAvailable)
+          ..add(data);
         _dataAvailable = buf.toBytes();
       });
     }

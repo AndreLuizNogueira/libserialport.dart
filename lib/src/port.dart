@@ -308,10 +308,9 @@ class SerialPortDesktop implements SerialPort {
 
   @override
   bool get isOpen {
-    final handle =
-        Util.getInt((ptr) {
-          return dylib.sp_get_port_handle(_port, ptr.cast());
-        })!;
+    final handle = Util.getInt((ptr) {
+      return dylib.sp_get_port_handle(_port, ptr.cast());
+    })!;
     return handle > 0;
   }
 
