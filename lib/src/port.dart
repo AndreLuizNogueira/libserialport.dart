@@ -33,6 +33,8 @@ import 'package:libserialport/src/config.dart';
 import 'package:libserialport/src/dylib.dart';
 import 'package:libserialport/src/enums.dart';
 import 'package:libserialport/src/error.dart';
+import 'package:libserialport/src/lpt.dart';
+import 'package:libserialport/src/lpt_android.dart';
 import 'package:libserialport/src/util.dart';
 
 /// Serial port.
@@ -73,7 +75,11 @@ abstract class SerialPort {
   ///           with the serial port.
   factory SerialPort(String name) {
     if (Platform.isAndroid) {
-      return SerialPortAndroid(name);
+      return isLptPort(name)
+          ? SerialPortLptAndroid(name)
+          : SerialPortAndroid(name);
+    } else if (isLptPort(name)) {
+      return SerialPortLpt(name);
     } else {
       return SerialPortDesktop(name);
     }
@@ -92,11 +98,18 @@ abstract class SerialPort {
   int get address;
 
   /// Lists the serial ports available on the system.
-  static Future<List<String>> get availablePorts {
+  static Future<List<String>> get availablePorts async {
     if (Platform.isAndroid) {
+      // Android LPT ports (usblpt:N) cannot be automatically enumerated
+      // without native code; only standard serial USB devices are listed.
       return SerialPortAndroid.availablePorts;
     } else {
-      return SerialPortDesktop.availablePorts;
+      final serial = await SerialPortDesktop.availablePorts;
+      if (Platform.isLinux || Platform.isWindows) {
+        final lpt = await SerialPortLpt.availablePorts;
+        return [...serial, ...lpt];
+      }
+      return serial;
     }
   }
 
@@ -220,11 +233,18 @@ abstract class SerialPort {
   bool endBreak();
 
   /// Gets the error for a failed operation.
+  ///
+  /// Returns the most recent error from any port type (serial or LPT).
   static SerialPortError? get lastError {
     if (Platform.isAndroid) {
-      return SerialPortAndroid.lastError;
+      return SerialPortLptAndroid.lastError ?? SerialPortAndroid.lastError;
     } else {
-      return SerialPortDesktop.lastError;
+      // For LPT ports the error lives in SerialPortLpt, not in the
+      // libserialport C library.  Return whichever is non-null, preferring
+      // the LPT error since it is set by Dart code and is more descriptive.
+      // It is consumed on read so that a stale LPT failure does not mask
+      // every later serial port error.
+      return SerialPortLpt.consumeLastError() ?? SerialPortDesktop.lastError;
     }
   }
 }
