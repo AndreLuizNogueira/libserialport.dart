@@ -1,5 +1,11 @@
 # Changes
 
+## [0.4.5] - 2026-09-16
+
+* `usb_serial` passa a resolver pelo fork
+  https://github.com/AndreLuizNogueira/usbserial via `dependency_overrides`
+  (0.5.3, compatível com a restrição `^0.5.2`).
+
 ## [0.4.4] - 2026-09-16
 
 * Atualizado para o Flutter 3.47.4 / Dart 3.13.3 (SDK mínimo `>=3.13.3 <4.0.0`);
