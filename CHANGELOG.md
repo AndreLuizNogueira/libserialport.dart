@@ -1,5 +1,15 @@
 # Changes
 
+## [0.4.4] - 2026-09-16
+
+* Atualizado para o Flutter 3.47.4 / Dart 3.13.3 (SDK mínimo `>=3.13.3 <4.0.0`);
+* Fixada a versão do SDK no projeto via FVM (`.fvmrc`), com `.fvm/` ignorado no
+  controle de versão;
+* Dependências atualizadas: `ffigen` ^21.0.0 -> ^22.0.0, `test` ^1.30.0 -> ^1.32.0;
+* `dylib` passa a usar restrição por cursor (`^0.3.3`) em vez de versão fixa;
+* Código reformatado pelo `dart format` do Dart 3.13 (somente estilo, sem
+  mudança de comportamento).
+
 ## [0.4.3] - 2026-08-17
 
 * Linux: reconhecimento de impressoras USB classe printer (`usblp`) —
